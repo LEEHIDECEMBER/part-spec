@@ -1,0 +1,8 @@
+// Cloudflare Worker(part-spec-ai) 설정. Cloudflare가 이 저장소를 읽어 worker/worker.js를 배포한다.
+// API 키는 여기 넣지 않는다 (Cloudflare 화면의 Secret GEMINI_API_KEY).
+{
+  "name": "part-spec-ai",
+  "main": "worker/worker.js",
+  "compatibility_date": "2026-11-01",
+  "keep_vars": true
+}
