@@ -7,6 +7,7 @@
    - Secret:   GEMINI_API_KEY  (Google AI Studio에서 발급)
    - 변수(선택): ALLOWED_ORIGINS = "https://leehidecember.github.io"  (쉼표로 여러 개)
                MODEL = "gemini-flash-latest"  (모델 이름이 바뀌면 여기만 고치면 됨)
+               FALLBACK_MODEL = "gemini-flash-lite-latest"  (붐빌 때 대신 쓸 모델)
 */
 
 const PROMPT = `You read photos of electrical components for Korean electrical students and technicians.
@@ -83,17 +84,33 @@ export default {
       contents: [{ role: 'user', parts: [{ text }, { inline_data: { mime_type: mime, data: image } }] }],
       generationConfig: { responseMimeType: 'application/json', temperature: 0.1 },
     };
-    let g;
-    try {
-      g = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`, {
-        method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': env.GEMINI_API_KEY }, body: JSON.stringify(gReq),
-      });
-    } catch (e) { return json({ ok: false, error: 'AI 서버에 연결하지 못했어요' }, 502); }
-
-    const gj = await g.json().catch(() => ({}));
+    // 모델이 바쁘면(503) 잠깐 기다렸다 다시, 그래도 안 되면 가벼운 모델로 바꿔서 시도
+    const models = [model, ...(env.FALLBACK_MODEL || 'gemini-flash-lite-latest').split(',').map(s => s.trim())].filter((m, i, a) => m && a.indexOf(m) === i);
+    const payload = JSON.stringify(gReq);
+    let g, gj = {}, used = model;
+    for (const m of models) {
+      for (let attempt = 0; attempt < 2; attempt++) {
+        used = m;
+        try {
+          g = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(m)}:generateContent`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': env.GEMINI_API_KEY }, body: payload,
+          });
+        } catch (e) { g = null; }
+        gj = g ? await g.json().catch(() => ({})) : {};
+        if (g && g.ok) break;
+        const busy = !g || g.status === 503 || g.status === 500;
+        if (!busy) break;                                   // 키 오류·한도 초과 등은 다시 해도 같음
+        if (attempt === 0) await new Promise(r => setTimeout(r, 1500));
+      }
+      if (g && g.ok) break;
+      if (g && ![503, 500, 404].includes(g.status)) break;  // 바쁨·모델 없음일 때만 다음 모델로
+    }
+    if (!g) return json({ ok: false, error: 'AI 서버에 연결하지 못했어요' }, 502);
     if (!g.ok) {
-      const msg = g.status === 429 ? '오늘 무료 사용량을 다 썼거나 너무 자주 요청했어요. 잠시 후 다시 시도해 주세요'
-        : g.status === 404 ? `모델(${model})을 찾을 수 없어요. Worker의 MODEL 변수를 확인해 주세요`
+      const msg = g.status === 503 || g.status === 500 ? 'AI 서버가 지금 붐벼요. 잠시 후 다시 시도해 주세요'
+        : g.status === 429 ? '오늘 무료 사용량을 다 썼거나 너무 자주 요청했어요. 잠시 후 다시 시도해 주세요'
+        : g.status === 404 ? `모델(${used})을 찾을 수 없어요. Worker의 MODEL 변수를 확인해 주세요`
+        : g.status === 400 || g.status === 403 ? 'AI 키가 올바르지 않거나 권한이 없어요. Worker의 GEMINI_API_KEY를 확인해 주세요'
         : (gj.error && gj.error.message) || 'AI 오류';
       return json({ ok: false, error: msg }, g.status === 429 ? 429 : 502);
     }
@@ -102,6 +119,6 @@ export default {
     let result;
     try { result = JSON.parse(out.replace(/^```(?:json)?\s*|\s*```$/g, '')); }
     catch { return json({ ok: false, error: 'AI 답을 해석하지 못했어요. 다시 찍어 주세요' }, 502); }
-    return json({ ok: true, model, result });
+    return json({ ok: true, model: used, result });
   },
 };
