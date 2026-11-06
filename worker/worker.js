@@ -65,8 +65,7 @@ export default {
     const model = env.MODEL || 'gemini-flash-latest';
 
     if (req.method === 'OPTIONS') return new Response(null, { headers: cors });
-    // 상태 확인: 값은 절대 보여 주지 않고, 설정된 변수 '이름'만 보여 준다 (오타 찾기용)
-    if (req.method === 'GET') return json({ ok: true, model, keySet: !!env.GEMINI_API_KEY, names: Object.keys(env) });
+    if (req.method === 'GET') return json({ ok: true, model, keySet: !!env.GEMINI_API_KEY });
     if (req.method !== 'POST') return json({ ok: false, error: '허용되지 않은 요청이에요' }, 405);
     // 다른 웹사이트의 브라우저에서 이 서버를 쓰지 못하게 (브라우저가 보내는 Origin 기준)
     if (!okOrigin) return json({ ok: false, error: '허용되지 않은 주소에서 온 요청이에요' }, 403);
