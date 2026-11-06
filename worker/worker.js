@@ -21,6 +21,8 @@ Return ONLY JSON with this shape:
   "marking": "the code/marking printed on a small part or cable exactly as written (e.g. \\"103\\", \\"2A473J\\", \\"470uF 25V\\", \\"F-CV 0.6/1kV 4C X 6SQ\\")" or null,
   "motor": { "phase": 1|3|null, "voltage": "e.g. 220/380" , "current": "e.g. 26.4/15.2", "power_kw": number|null, "power_hp": number|null, "freq": number|null, "poles": number|null, "rpm": number|null, "efficiency": number (percent)|null, "power_factor": number|null, "insulation": "A|E|B|F|H"|null, "ip": "IP55"|null, "duty": "S1"|null, "sf": number|null, "connection": "e.g. Δ/Y"|null } or null,
   "breaker": { "kind": "MCB"|"MCCB"|"ELB"|null, "poles": number|null, "rated_current": number|null, "frame": number|null, "curve": "B"|"C"|"D"|null, "breaking_ka": number|null, "sensitivity_ma": number|null, "voltage": number|null } or null,
+  "maker": "manufacturer/brand name exactly as printed (e.g. LS ELECTRIC, 상도, HYUNDAI)" or null,
+  "model": "model / part number exactly as printed" or null,
   "raw_text": "all readable text in the photo, line breaks as \\n",
   "note": "one or two short sentences IN KOREAN about anything uncertain (blurry, glare, band order unclear). Empty string if nothing."
 }
@@ -33,6 +35,24 @@ Rules:
 - Breakers: ELB/RCBO/RCD/누전 → "ELB"; small DIN-rail MCB with C16/B10 style → "MCB"; molded case 배선용 → "MCCB". AT = rated_current, AF = frame, IΔn = sensitivity_ma, Icu/Icn kA = breaking_ka.
 - Motors: copy multiple voltages/currents exactly with "/" (e.g. "220/380"). HP and kW are both allowed.
 - Cables/wires: copy the printed marking.`;
+
+const PART_KO = { resistor: '저항', capacitor: '콘덴서', inductor: '인덕터', motor: '유도 전동기', breaker: '차단기', wire: '전선·케이블' };
+function altPrompt(b) {
+  return `You help Korean electrical technicians find replacement products from OTHER manufacturers.
+Part type: ${PART_KO[b.part] || b.part}
+Required spec: ${b.spec}
+Original product: maker="${b.maker || 'unknown'}", model="${b.model || 'unknown'}"
+Must-match criteria:
+- ${(b.criteria || []).join('\n- ')}
+
+Use Google Search. Find 3 to 5 currently sold products from manufacturers OTHER than the original maker that meet the criteria.
+Prefer Korean manufacturers first (e.g. LS ELECTRIC, HD현대일렉트릭, 상도전기, 서전기전, 효성중공업, 하이젠모터, LS전선, 대한전선, 가온전선, 삼화콘덴서, 삼영전자, 삼성전기), then well-known global makers.
+Only list model numbers you actually saw in search results. Never invent a model number; if unsure, leave "model" as a series name and say so in "diff".
+
+Return ONLY JSON:
+{"alternatives":[{"maker":"...","model":"...","domestic":true|false,"match":"short Korean sentence: which specs match","diff":"short Korean sentence: differences or things to check, or empty","url":"source page URL or empty"}],
+ "note":"one short Korean sentence of advice, or empty"}`;
+}
 
 const TYPES_HINT = {
   resistor: 'The user says this is a resistor (color bands or SMD code).',
@@ -76,6 +96,7 @@ export default {
 
     let body;
     try { body = await req.json(); } catch { return json({ ok: false, error: '잘못된 요청이에요' }, 400); }
+    if (body && body.mode === 'alt') return handleAlt(body, env, json, model);
     const { image, mime = 'image/jpeg', hint = 'auto' } = body || {};
     if (typeof image !== 'string' || image.length < 100) return json({ ok: false, error: '사진이 없어요' }, 400);
 
@@ -122,3 +143,40 @@ export default {
     return json({ ok: true, model: used, result });
   },
 };
+
+/* 대체품 찾기: Google 검색을 켜고 다른 회사 제품을 찾는다 */
+async function handleAlt(b, env, json, model) {
+  if (!b.spec || typeof b.spec !== 'string' || b.spec.length > 400) return json({ ok: false, error: '사양 정보가 없어요' }, 400);
+  const req = {
+    contents: [{ role: 'user', parts: [{ text: altPrompt(b) }] }],
+    tools: [{ google_search: {} }],
+    generationConfig: { temperature: 0.2 },
+  };
+  const models = [env.ALT_MODEL || model, env.FALLBACK_MODEL || 'gemini-flash-lite-latest'].filter((m, i, a) => m && a.indexOf(m) === i);
+  let g, gj = {}, used = models[0];
+  for (const m of models) {
+    used = m;
+    try {
+      g = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(m)}:generateContent`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': env.GEMINI_API_KEY }, body: JSON.stringify(req),
+      });
+    } catch (e) { g = null; }
+    gj = g ? await g.json().catch(() => ({})) : {};
+    if (g && g.ok) break;
+    if (g && ![500, 503, 404].includes(g.status)) break;
+  }
+  if (!g || !g.ok) {
+    const st = g ? g.status : 0;
+    const msg = st === 429 ? '검색 사용량이 많아요. 잠시 후 다시 시도해 주세요'
+      : st === 503 || st === 500 ? 'AI 서버가 지금 붐벼요. 잠시 후 다시 시도해 주세요'
+      : (gj.error && gj.error.message) || 'AI 오류';
+    return json({ ok: false, error: msg }, 502);
+  }
+  const cand = gj.candidates?.[0] || {};
+  const text = (cand.content?.parts || []).filter(p => !p.thought && p.text).map(p => p.text).join('');
+  const sources = (cand.groundingMetadata?.groundingChunks || []).map(c => c.web).filter(Boolean).map(w => ({ uri: w.uri, title: w.title })).slice(0, 10);
+  const m = text.match(/\{[\s\S]*\}/);
+  let result;
+  try { result = JSON.parse(m ? m[0] : text); } catch { return json({ ok: false, error: 'AI 답을 해석하지 못했어요. 다시 시도해 주세요' }, 502); }
+  return json({ ok: true, model: used, result, sources });
+}
