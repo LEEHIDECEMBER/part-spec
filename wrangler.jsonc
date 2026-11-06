@@ -4,5 +4,9 @@
   "name": "part-spec-ai",
   "main": "worker/worker.js",
   "compatibility_date": "2026-11-01",
-  "keep_vars": true
+  "keep_vars": true,
+  "vars": {
+    "MODEL": "gemini-flash-lite-latest",
+    "FALLBACK_MODEL": "gemini-2.5-flash"
+  }
 }
