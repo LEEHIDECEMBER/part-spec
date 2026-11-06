@@ -1,0 +1,13 @@
+{
+  "name": "부품 사양 찾기",
+  "short_name": "부품사양",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#F4F5F9",
+  "theme_color": "#F4F5F9",
+  "icons": [
+    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}
