@@ -1,5 +1,5 @@
 // 서비스 워커: 오프라인에서도 열리게 캐시. 앱을 고쳐 배포할 때마다 숫자를 올린다.
-const CACHE = 'part-spec-v1';
+const CACHE = 'part-spec-v2';
 const FILES = ['./', 'index.html', 'calc.js', 'manifest.webmanifest', 'icon-192.png', 'icon-512.png', 'apple-touch-icon.png'];
 self.addEventListener('install', e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(FILES))); self.skipWaiting(); });
 self.addEventListener('activate', e => {

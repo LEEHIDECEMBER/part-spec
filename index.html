@@ -126,7 +126,7 @@ a{color:var(--accent)}
 <script>
 /* ============ 설정 ============ */
 // Cloudflare Worker 주소. 배포 후 여기에 넣거나, 앱 설정 화면에서 넣어도 된다.
-const DEFAULT_AI_URL = '';
+const DEFAULT_AI_URL = 'https://part-spec-ai.9354gmlemr.workers.dev';
 const MAX_HISTORY = 40;
 
 /* ============ 저장소 (키 앞에 ep. 접두어: 같은 github.io 주소의 다른 앱과 겹치지 않게) ============ */
@@ -135,6 +135,7 @@ const LS = {
   set(k, v) { try { localStorage.setItem('ep.' + k, JSON.stringify(v)); return true; } catch (e) { toast('저장 공간이 부족해요. 기록을 조금 지워 주세요'); return false; } },
 };
 let settings = Object.assign({ aiUrl: DEFAULT_AI_URL, freq: 60 }, LS.get('settings', {}));
+if (!settings.aiUrl) settings.aiUrl = DEFAULT_AI_URL;   // 예전에 빈 주소가 저장돼 있어도 기본 서버 사용
 let history = LS.get('history', []);
 
 /* ============ 아이콘 ============ */
